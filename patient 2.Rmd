@@ -1,0 +1,363 @@
+---
+title: "second"
+output: html_document
+date: "2026-01-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(42)
+```
+
+```{r}
+#load the libraries
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(SingleCellExperiment)
+library(scDblFinder)
+library(openxlsx)
+
+```
+
+```{r}
+#load the data
+
+second.data <- Read10X(data.dir = "second_JMML_AML/filtered_feature_bc_matrix")
+
+# Initialize the Seurat object with the raw (non-normalized data).
+second <- CreateSeuratObject(counts = second.data, project = "second", min.cells = 3, min.features = 200)
+second
+```
+
+
+```{r}
+# Calculate the percentage of mitochondrial gene expression per cell
+
+second[["percent.mt"]] <- PercentageFeatureSet(second, pattern = "^MT-")
+
+head(second@meta.data, 5)
+```
+
+```{r}
+#Violin plot
+
+VlnPlot(second, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+
+
+
+```{r}
+# Filterng and see the violin plot after that
+second <- subset(second, subset = nFeature_RNA > 1000 & nFeature_RNA < 7500 & nCount_RNA > 2000 & nCount_RNA < 25000 & percent.mt < 10)
+
+
+VlnPlot(second, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+
+```{r}
+#Normilization and Identification of highly variable features (feature selection)
+
+second <- NormalizeData(second, normalization.method = "LogNormalize", scale.factor = 10000)
+
+
+second <- FindVariableFeatures(second, selection.method = "vst", nfeatures = 3000) 
+
+top10_second <- head(VariableFeatures(second), 10)
+
+plot1_second <- VariableFeaturePlot(second)
+plot1_second <- LabelPoints(plot = plot1_second, points = top10_second, repel = TRUE)
+
+plot1_second
+
+
+```
+
+
+```{r}
+#Scaling the data
+
+all.genes_second <- rownames(second)
+second <- ScaleData(second, features = all.genes_second)
+```
+
+```{r}
+# PCA
+
+second <- RunPCA(second, features = VariableFeatures(object = second))
+
+# Examine and visualize PCA results a few different ways
+print(second[["pca"]], dims = 1:5, nfeatures = 5)
+
+VizDimLoadings(second, dims = 1:2, reduction = "pca")
+```
+
+```{r}
+#PCA plot
+
+DimPlot(second, reduction = "pca") + NoLegend()
+```
+
+
+
+```{r}
+#Heat map
+
+DimHeatmap(second, dims = 1, cells = 500, balanced = TRUE)
+```
+
+```{r}
+#Determine the ‘dimensionality’ of the dataset
+
+ElbowPlot(second, ndims=50)
+```
+
+
+```{r}
+#Cluster the cells
+set.seed(42)
+second <- FindNeighbors(second, dims = 1:30)
+second <- FindClusters(second, resolution = 1.2)
+
+#Look at cluster IDs of the first 5 cells
+head(Idents(second), 5)
+```
+
+
+```{r}
+#Doublets filtering
+
+sce_second <- as.SingleCellExperiment(second)
+sce_second <- scDblFinder(sce_second)
+
+
+table(colData(sce_second)$scDblFinder.class)
+
+
+second$doublet_call  <- colData(sce_second)$scDblFinder.class
+second$doublet_score <- colData(sce_second)$scDblFinder.score
+
+table(second$doublet_call)
+
+
+
+```
+
+
+
+```{r}
+#Remove doublets
+
+second_singlets <- subset(second, subset = doublet_call == "singlet")
+second_singlets
+
+```
+
+
+```{r}
+# Normalize data, identify variable genes, perform dimensionality reduction,
+# clustering, and UMAP visualization of singlet cells for the second sample.
+
+set.seed(42)
+
+second_singlets <- NormalizeData(second_singlets)
+second_singlets <- FindVariableFeatures(second_singlets)
+second_singlets <- ScaleData(second_singlets)
+second_singlets <- RunPCA(second_singlets, npcs = 30)
+
+second_singlets <- FindNeighbors(second_singlets, dims = 1:30)
+second_singlets <- FindClusters(second_singlets, resolution = 1.2)
+second_singlets <- RunUMAP(second_singlets, dims = 1:30, seed.use = 42)
+
+DimPlot(second_singlets, reduction = "umap", label = TRUE) + NoLegend()
+
+```
+
+```{r}
+# 0 - (CD34, AVP, HLF) - HSC
+
+# 1 - (CD14, LGALS3, S100A8, S100A9, LYZ, CD68, CST3) - IF Monocytes
+
+# 2 - (CD34, KIT) - MPP
+
+# 3 - (LYZ, CD68, C1QA, C1QB, C1QC, CST3) - Macrophages
+
+# 4 - (CD14, LGALS3, S100A8, S100A9, LYZ, CD68, CST3) - Monocytes
+
+# 5 - (CD1C, LYZ, CD68, CST3) - Monocyte/DC-like
+
+# 6 - (PPBP,PF4) - Megakaryocytes	
+
+# 7 - (CD34, KIT) - MPP
+
+# 8 - (CPA3, CD34, GATA2, IKZF2) - Mast Progenitors 
+
+# 9 - (MKI67, CD34, MPO, AZU1) - Granulocytic Progenitors
+
+# 10* - (PPBP,PF4) - Megakaryocyte	
+
+# 11* - (LTB, TRAC, CD3D, CD3E, IL7R, CCR7) - CD4 T cell
+
+# 12 - (LTB, TRAC, CD3D, CD3E, CD8B, CD8A, IL7R, CCR7) - CD8 T cells
+
+# 13 - (LTB, TRAC, CD3D, CD3E, CTLA4, IL7R, CCR7) - Activated T cells
+
+# 14 - (CD79A, MS4A1, CD19, PAX5, CCR7) - B cells
+
+# 15 - (LILRA4) - pDC
+
+# 16 - (GNLY, PRF1, NKG7, CD3D, CD3E, CD8B, CD8A, IL7R) - Cytotoxic CD8
+
+# 17 - (CPA3, TPSAB1, GATA2, IKZF2) - mast cell
+
+# 18 - (CD34, AVP) - HSC
+
+# 19 - (CD34, HLF) - HSC
+
+# 20 - (MZB1) - Plasmic cells
+```
+
+```{r}
+# Try to identify clusters
+DotPlot(second_singlets, features = c("CD41","PPBP","PF4"))
+```
+
+
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+second_singlets.markers <- FindAllMarkers(
+  second_singlets,
+  only.pos = TRUE,
+  min.pct = 0.05
+) #cutoff for min % of cells in which genes are expressed
+
+second_markers_top20 <- second_singlets.markers %>%
+  group_by(cluster) %>%
+  slice_max(order_by = avg_log2FC, n = 20) %>%
+  arrange(cluster, desc(avg_log2FC))
+
+
+second_markers_strict <- second_singlets.markers %>%
+  group_by(cluster) %>%
+  filter(avg_log2FC > 1) %>%
+  arrange(cluster, desc(avg_log2FC))
+
+```
+
+
+```{r}
+# Create an Excel workbook and export marker gene tables for downstream inspection and reporting
+wb_second <- createWorkbook()
+
+addWorksheet(wb_second, "Top20_markers")
+writeData(wb_second, "Top20_markers", second_markers_top20)
+
+addWorksheet(wb_second, "Strict_markers_logFC_gt1")
+writeData(wb_second, "Strict_markers_logFC_gt1", second_markers_strict)
+
+saveWorkbook(
+  wb_second,
+  file = "JMML_cluster_markers_second_singlets_dims30_res1.2_seed42.xlsx",
+  overwrite = TRUE
+)
+
+```
+
+
+```{r}
+# Map Seurat clusters to biological cell type labels for the second sample and visualize the final annotated UMAP.
+
+cluster2celltype_second <- c(
+  "0"  = "HSC",
+  "1"  = "IF Monocytes",
+  "2"  = "MPP",
+  "3"  = "Macrophages",
+  "4"  = "Monocytes",
+  "5"  = "Monocyte/DC-like",
+  "6"  = "Megakaryocytes",
+  "7"  = "MPP",
+  "8"  = "Mast Progenitors",
+  "9"  = "Granulocytic Progenitors",
+  "10" = "Megakaryocytes",
+  "11" = "CD4 T Cells",
+  "12" = "CD8 T Cells",
+  "13" = "Activated T Cells",
+  "14" = "B Cells",
+  "15" = "pDC",
+  "16" = "Cytotoxic CD8 T Cells",
+  "17" = "Mast Cells",
+  "18" = "HSC",
+  "19" = "HSC",
+  "20" = "Plasma Cells"
+)
+
+second_singlets$celltype <- unname(
+  cluster2celltype_second[as.character(second_singlets$seurat_clusters)]
+)
+
+Idents(second_singlets) <- "celltype"
+
+DimPlot(second_singlets, reduction = "umap", label = TRUE, repel = TRUE) + NoLegend()
+
+```
+
+
+
+```{r}
+
+# Export the second Seurat object to .h5ad format (SingleCellExperiment) for Python/CellTypist,
+# ensuring both log-normalized expression (logcounts) and raw counts layers are present.
+
+library(zellkonverter)
+
+sce_ <- as.SingleCellExperiment(second_singlets)
+
+if (!"logcounts" %in% SummarizedExperiment::assayNames(sce_)) {
+  SummarizedExperiment::assay(sce_, "logcounts") <- 
+    GetAssayData(second_singlets, layer = "data")
+}
+
+SummarizedExperiment::assay(sce_, "counts") <- 
+  GetAssayData(second_singlets, layer = "counts")
+
+writeH5AD(
+  sce_,
+  "second_singlets_log1p10k.h5ad",
+  X_name = "logcounts"
+)
+
+```
+
+
+
+```{r}
+# Load CellTypist prediction output and inspect the table structure.
+
+library(readr)
+
+pred <- read_csv("second_JMML_AML/predicted_labels.csv")
+
+head(pred)
+colnames(pred)
+
+
+
+```
+
+```{r}
+# Map CellTypist majority-voting labels to Seurat cell barcodes, add predictions to metadata, and visualize the annotation on UMAP.
+
+mv <- pred$majority_voting
+names(mv) <- pred$...1
+
+second_singlets$celltypist <- mv[Cells(second_singlets)]
+
+DimPlot(second_singlets, group.by = "celltypist", label = TRUE) + NoLegend()
+
+```
+
+
+

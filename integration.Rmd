@@ -1,0 +1,167 @@
+---
+title: "common_3"
+output: html_document
+date: "2026-01-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(42)
+```
+
+```{r}
+#load the libraries
+library(harmony)
+library(dplyr)
+library(openxlsx)
+
+```
+
+```{r}
+# Assign sample labels to each singlet Seurat object prior to merging for downstream integration
+
+obj1 <- third_singlets
+obj2 <- second_singlets
+obj3 <- first_singlets
+
+obj1$sample <- "third"
+obj2$sample <- "second"
+obj3$sample <- "first"
+
+```
+
+```{r}
+# Merge the three singlet datasets into one Seurat object for joint analysis
+combined_JMML_AML_harmony <- merge(obj1, y = list(obj2, obj3), project = "JMML_AML_3samples")
+```
+
+
+```{r}
+# Perform standard preprocessing on the merged dataset: normalization, variable feature selection,
+# scaling, and PCA as input for Harmony-based batch correction
+combined_JMML_AML_harmony <- NormalizeData(combined_JMML_AML_harmony)
+combined_JMML_AML_harmony <- FindVariableFeatures(combined_JMML_AML_harmony, selection.method = "vst", nfeatures = 3000)
+combined_JMML_AML_harmony <- ScaleData(combined_JMML_AML_harmony)
+combined_JMML_AML_harmony <- RunPCA(combined_JMML_AML_harmony, npcs = 50, verbose = FALSE)
+
+```
+
+
+```{r}
+# Check the batch effect
+
+DimPlot(combined_JMML_AML_harmony, reduction = "pca", group.by = "sample")
+
+```
+
+```{r}
+# Apply Harmony batch correction to remove sample-specific technical effects
+# while preserving biological variation across the merged dataset
+
+combined_JMML_AML_harmony <- harmony::RunHarmony(
+  object = combined_JMML_AML_harmony,
+  group.by.vars = "sample",
+  reduction.use = "pca",
+  dims.use = 1:30,
+  verbose = TRUE
+)
+
+```
+
+```{r}
+# Perform UMAP visualization, construct neighbor graph, and identify clusters
+# using Harmony-corrected embeddings of the integrated dataset
+
+combined_JMML_AML_harmony <- RunUMAP(combined_JMML_AML_harmony, reduction = "harmony", dims = 1:30)
+combined_JMML_AML_harmony <- FindNeighbors(combined_JMML_AML_harmony, reduction = "harmony", dims = 1:30)
+combined_JMML_AML_harmony <- FindClusters(combined_JMML_AML_harmony, resolution = 1)
+
+```
+
+
+```{r}
+
+# Visualize UMAP of the integrated Harmony-corrected dataset, coloring cells by Seurat cluster identities
+DimPlot(combined_JMML_AML_harmony,
+        reduction = "umap",
+        group.by = "seurat_clusters",
+        label = TRUE, repel = TRUE)
+
+
+```
+
+
+```{r}
+# Generate a cluster-to-celltype mapping table by assigning each Seurat cluster
+# to the most frequent cell type within that cluster, and export the table to Excel
+
+cluster_to_celltype <- combined_JMML_AML_harmony@meta.data %>%
+  count(seurat_clusters, celltype) %>%
+  group_by(seurat_clusters) %>%
+  slice_max(n, n = 1) %>%
+  ungroup() %>%
+  arrange(as.numeric(seurat_clusters))
+
+
+write.xlsx(cluster_to_celltype,
+           file = "cluster_to_celltype_mapping.xlsx",
+           rowNames = FALSE)
+```
+
+
+
+```{r}
+# Try to identify clusters
+DotPlot(combined_JMML_AML_harmony,
+            features = c("CD14", "S100A9", "FCN1", "LGALS3"))
+```
+
+
+```{r}
+# Refine cell type annotations in the integrated dataset by manually reassigning
+# selected Seurat clusters to more specific biological identities
+
+combined_JMML_AML_harmony$celltype_refined <- combined_JMML_AML_harmony$celltype
+
+# cluster 11 → Monocytes
+combined_JMML_AML_harmony$celltype_refined[
+  combined_JMML_AML_harmony$seurat_clusters == "11"
+] <- "Monocytes"
+
+# cluster 20 → Megakaryblasts
+combined_JMML_AML_harmony$celltype_refined[
+  combined_JMML_AML_harmony$seurat_clusters == "20"
+] <- "Megakaryblasts"
+
+```
+
+
+```{r}
+# Visualize the integrated UMAP colored by refined cell type annotations
+DimPlot(combined_JMML_AML_harmony,
+        reduction = "umap",
+        group.by = "celltype_refined",
+        label = TRUE,
+        repel = TRUE)
+
+
+```
+
+```{r}
+# Create a refined cluster-to-celltype mapping table based on the updated annotations
+# and export it to Excel for reporting
+
+cluster_to_celltype_refined <- combined_JMML_AML_harmony@meta.data %>%
+  count(seurat_clusters, celltype_refined) %>%
+  group_by(seurat_clusters) %>%
+  slice_max(n, n = 1) %>%
+  ungroup() %>%
+  arrange(as.numeric(seurat_clusters))
+
+write.xlsx(cluster_to_celltype_refined,
+           file = "cluster_to_celltype_mapping_refined.xlsx",
+           rowNames = FALSE)
+
+```
+
+

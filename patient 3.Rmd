@@ -1,0 +1,374 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-01-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#load the libraries
+
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(SingleCellExperiment)
+library(scDblFinder)
+library(openxlsx)
+library(SeuratDisk)
+```
+
+```{r}
+#load the data
+
+third.data <- Read10X(data.dir = "third_JMML_AML/filtered_feature_bc_matrix")
+
+# Initialize the Seurat object with the raw (non-normalized data).
+third <- CreateSeuratObject(counts = third.data, project = "third", min.cells = 3, min.features = 200)
+third
+
+```
+
+```{r}
+# Calculate the percentage of mitochondrial gene expression per cell
+third[["percent.mt"]] <- PercentageFeatureSet(third, pattern = "^MT-")
+
+head(third@meta.data, 5)
+```
+
+```{r}
+#Violin plot
+
+
+VlnPlot(third, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+
+```{r}
+# Filterng and see the violin plot after that
+third <- subset(third, subset = nFeature_RNA > 1000 & nFeature_RNA < 5000 & nCount_RNA > 2000 & nCount_RNA < 15000 & percent.mt < 10)
+
+
+VlnPlot(third, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r}
+#Normilization and Identification of highly variable features (feature selection)
+
+third <- NormalizeData(third, normalization.method = "LogNormalize", scale.factor = 10000)
+
+
+third <- FindVariableFeatures(third, selection.method = "vst", nfeatures = 3000) 
+
+top10_third <- head(VariableFeatures(third), 10)
+
+plot1_third <- VariableFeaturePlot(third)
+plot1_third <- LabelPoints(plot = plot1_third, points = top10_third, repel = TRUE)
+
+plot1_third
+
+```
+
+```{r}
+#Scaling the data
+
+all.genes_third <- rownames(third)
+third <- ScaleData(third, features = all.genes_third)
+```
+
+```{r}
+# PCA
+
+third <- RunPCA(third, features = VariableFeatures(object = third))
+
+# Examine and visualize PCA results a few different ways
+print(third[["pca"]], dims = 1:5, nfeatures = 5)
+
+VizDimLoadings(third, dims = 1:2, reduction = "pca")
+```
+
+
+```{r}
+#PCA plot
+
+DimPlot(third, reduction = "pca") + NoLegend()
+```
+
+
+```{r}
+#Determine the ‘dimensionality’ of the dataset
+
+ElbowPlot(third, ndims=50)
+```
+
+
+```{r}
+#Cluster the cells
+set.seed(42)
+third <- FindNeighbors(third, dims = 1:30)
+third <- FindClusters(third, resolution = 1.4)
+
+#Look at cluster IDs of the first 5 cells
+head(Idents(third), 5)
+
+```
+
+```{r}
+#Doublets filtering
+
+sce_third <- as.SingleCellExperiment(third)
+sce_third <- scDblFinder(sce_third)
+
+
+table(colData(sce_third)$scDblFinder.class)
+
+
+third$doublet_call  <- colData(sce_third)$scDblFinder.class
+third$doublet_score <- colData(sce_third)$scDblFinder.score
+
+table(third$doublet_call)
+```
+
+
+```{r}
+#Remove doublets
+
+third_singlets <- subset(third, subset = doublet_call == "singlet")
+third_singlets
+```
+
+```{r}
+# Normalize data, identify variable genes, perform dimensionality reduction, clustering, and UMAP visualization of singlet cells for the third sample.
+
+set.seed(42)
+
+third_singlets <- NormalizeData(third_singlets)
+third_singlets <- FindVariableFeatures(third_singlets)
+third_singlets <- ScaleData(third_singlets)
+third_singlets <- RunPCA(third_singlets, npcs = 30)
+
+third_singlets <- FindNeighbors(third_singlets, dims = 1:30)
+third_singlets <- FindClusters(third_singlets, resolution = 1.4)
+third_singlets <- RunUMAP(third_singlets, dims = 1:30, seed.use = 42)
+
+DimPlot(third_singlets, reduction = "umap", label = TRUE) + NoLegend()
+
+```
+
+
+```{r}
+# 0 - (MS4A1, CD79A, PAX5) - B cell
+
+# 1 - (CD2, CD3D, IL7R, CCR7, TRAC) - CD4+ T cell
+
+# 2 - (CD2, CD3D, CD3G, CD8B, CD8A, IL7R, TRAC) - CD8+ T cells
+
+# 3 - (MS4A1, CD79A, PAX5) - B cell
+
+# 4 - (CD2, CD3D, CD3G, CD8B, CD8A, IL7R, CCR7, TRAC) - CD8+ T cells
+
+# 5 - (MS4A1, CD79A, PAX5) - B cell
+
+# 6 - (CD14, LYZ, CST3, LGALS3) - Monocytes
+
+
+
+# 8 - (CD2, CD3D, CD3G, CTLA4, IL7R, FOXP3, TRAC) - T reg cell
+
+# 9 - (CD14, LYZ, C1QA, C1QB, C1QC, CST3,LGALS3) - Macrophages
+
+# 10 - (LYZ, CST3, MKI67, LGALS3) - Cycling myeloid cells
+
+# 11 - (CD14, S100A8, S100A9, LYZ, CST3, LGALS3) - IF Monocytes
+
+# 12 - (CD1C, CST3, LGALS3) - cDC
+
+# 13 - (MKI67, HBB, CYTL1, TMEM14C, CA1, ALAS2, AHSP, CA1) - erythroid progenitors
+
+# 14 - (CD34, IL2RA) - HSPC
+
+# 15 - (IL2RA, PTH1R, NEGR1) - B cell progenitors
+
+# 16 - (CD2, CD3D, CD3G, CD8A, NKG7, GNLY, PRF1, TRAC) - Cytotoxic CD8 T cells
+
+
+
+# 18 - (CD2, IL7R, NKG7, GNLY, PRF1, IL2RA) - NK cells
+
+# 19 - (MS4A1, CD79A, PAX5, IL7R, TRAC) - B/T - doublets (remove)
+
+# 20 - (CD14?, C1QA, C1QB, C1QC, CST3) - Macrophages
+
+# 21 - (MZB1, CD38, TNFRSF17) - Plasma cells
+
+# 22 - (KIT, IKZF2, GATA2, CD38, CYTL1) - MPP
+
+# 23 - (MKI67, HBB, HBA2, AHSP, HBD, ALAS2, AHSP, CA1) - erythroid progenitors
+
+# 24 - (IRF8, IL2RA, LILRA4, CLEC4C) - pDC
+
+# 25 - (LYZ, CST3, IRF8, NEGR1) - monocyte/DC-like
+```
+
+```{r}
+# Remove low-quality clusters and clusters enriched in doublets from the third sample, then visualize the UMAP after filtering
+third_singlets <- subset(third_singlets, seurat_clusters %in% c(7, 17, 19), invert = TRUE)
+DimPlot(third_singlets, reduction = "umap", label = TRUE) + NoLegend()
+```
+
+```{r}
+# Try to identify clusters
+DotPlot(third_singlets, features = c("IGLL1", "PTH1R", "VPREB1", "ADGRG6", "NEGR1"))
+```
+
+
+```{r}
+# Map Seurat clusters to biological cell type labels for the third sample and visualize the final annotated UMAP.
+
+cluster2celltype <- c(
+  "0"  = "B Cells",
+  "1"  = "CD4 T Cells",
+  "2"  = "CD8 T Cells",
+  "3"  = "B Cells",
+  "4"  = "CD8 T Cells",
+  "5"  = "B Cells",
+  "6"  = "Monocytes",
+  "8"  = "Treg Cells",
+  "9"  = "Macrophages",
+  "10" = "Cycling Myeloid",
+  "11" = "IF Monocytes",
+  "12" = "cDC",
+  "13" = "Erythroid Progenitors",
+  "14" = "HSC",
+  "15" = "Pre-B Progenitors",
+  "16" = "Cytotoxic CD8 T Cells",
+  "18" = "NK Cells",
+  "20" = "Macrophages",
+  "21" = "Plasma Cells",
+  "22" = "MPP",
+  "23" = "Erythroid Progenitors",
+  "24" = "pDC",
+  "25" = "Monocyte/DC-like"
+)
+
+third_singlets$celltype <- unname(
+  cluster2celltype[as.character(third_singlets$seurat_clusters)]
+)
+
+Idents(third_singlets) <- "celltype
+
+DimPlot(third_singlets, label = TRUE, repel = TRUE) + NoLegend()
+
+
+
+```
+
+
+
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+third_singlets.markers <- FindAllMarkers(
+  third_singlets,
+  only.pos = TRUE,
+  min.pct = 0.05
+) #cutoff for min % of cells in which genes are expressed
+
+third_markers_top20 <- third_singlets.markers %>%
+  group_by(cluster) %>%
+  slice_max(order_by = avg_log2FC, n = 20) %>%
+  arrange(cluster, desc(avg_log2FC))
+
+
+third_markers_strict <- third_singlets.markers %>%
+  group_by(cluster) %>%
+  filter(avg_log2FC > 1) %>%
+  arrange(cluster, desc(avg_log2FC))
+```
+
+
+```{r}
+# Create an Excel workbook and export marker gene tables for downstream inspection and reporting
+
+wb_third <- createWorkbook()
+
+addWorksheet(wb_third, "Top20_markers")
+writeData(wb_third, "Top20_markers", third_markers_top20)
+
+addWorksheet(wb_third, "Strict_markers_logFC_gt1")
+writeData(wb_third, "Strict_markers_logFC_gt1", third_markers_strict)
+
+saveWorkbook(
+  wb_third,
+  file = "JMML_cluster_markers_gevorg_singlets_dims30_res1.2_seed42.xlsx",
+  overwrite = TRUE
+)
+
+```
+
+
+
+```{r}
+# Export the third Seurat object to .h5ad format (SingleCellExperiment) for Python/CellTypist, 
+# ensuring both log-normalized expression (logcounts) and raw counts layers are present.
+
+library(zellkonverter)
+
+sce_third <- as.SingleCellExperiment(third_singlets)
+
+if (!"logcounts" %in% SummarizedExperiment::assayNames(sce_third)) {
+  SummarizedExperiment::assay(sce_third, "logcounts") <- 
+    GetAssayData(third_singlets, layer = "data")
+}
+
+SummarizedExperiment::assay(sce_third, "counts") <- 
+  GetAssayData(third_singlets, layer = "counts")
+
+writeH5AD(
+  sce_third,
+  "third_singlets_log1p10k.h5ad",
+  X_name = "logcounts"
+)
+
+
+```
+
+```{r}
+# Load CellTypist prediction output for the third sample and inspect the table structure.
+library(readr)
+
+pred_third <- read_csv("third_JMML_AML/predicted_labels.csv")
+
+
+head(pred_third)
+colnames(pred_third)
+```
+
+```{r}
+# Read CellTypist predictions, map predicted labels to Seurat cell barcodes,
+# add them to Seurat metadata, and visualize the annotation on UMAP.
+
+pred_third <- read.csv("third_JMML_AML//predicted_labels.csv", check.names = FALSE)  
+head(pred_third)
+colnames(pred_third)
+
+
+cell_ids_third <- pred_third[[1]]
+
+head(cell_ids_third)
+mv_third <- pred_third$majority_voting
+names(mv_third) <- cell_ids_third
+
+# проверка совпадений
+length(intersect(Cells(third_singlets), names(mv_third)))
+
+third_singlets$celltypist <- mv_third[Cells(third_singlets)]
+table(third_singlets$celltypist, useNA = "ifany")
+
+DimPlot(third_singlets, reduction = "umap", group.by = "celltypist", label = TRUE) +
+  NoLegend()
+
+```
+
