@@ -28,33 +28,33 @@ library(openxlsx)
 ```{r}
 #load the data
 
-aroyan.data <- Read10X(data.dir = "aroyan_JMML_AML/filtered_feature_bc_matrix")
+first.data <- Read10X(data.dir = "first_JMML_AML/filtered_feature_bc_matrix")
 
 # Initialize the Seurat object with the raw (non-normalized data).
-aroyan <- CreateSeuratObject(counts = aroyan.data, project = "aroyan", min.cells = 3, min.features = 200)
-aroyan
+first <- CreateSeuratObject(counts = first.data, project = "first", min.cells = 3, min.features = 200)
+first
 ```
 
 ```{r}
 # Calculate the percentage of mitochondrial gene expression per cell
-aroyan[["percent.mt"]] <- PercentageFeatureSet(aroyan, pattern = "^MT-")
+first[["percent.mt"]] <- PercentageFeatureSet(first, pattern = "^MT-")
 
-head(aroyan@meta.data, 5)
+head(first@meta.data, 5)
 ```
 
 ```{r}
 #Violin plot
 
-VlnPlot(aroyan, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(first, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
 ```
 
 
 ```{r}
 # Filtering and see the violin plot after that
-aroyan <- subset(aroyan, subset = nFeature_RNA > 800 & nFeature_RNA < 8000 & nCount_RNA > 2000 & nCount_RNA < 50000 & percent.mt < 10)
+first <- subset(first, subset = nFeature_RNA > 800 & nFeature_RNA < 8000 & nCount_RNA > 2000 & nCount_RNA < 50000 & percent.mt < 10)
 
 
-VlnPlot(aroyan, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(first, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
 ```
 
 
@@ -63,7 +63,7 @@ VlnPlot(aroyan, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol =
 ```{r}
 #Normilization
 
-aroyan <- NormalizeData(aroyan, normalization.method = "LogNormalize", scale.factor = 10000)
+first <- NormalizeData(first, normalization.method = "LogNormalize", scale.factor = 10000)
 
 
 ```
@@ -71,14 +71,14 @@ aroyan <- NormalizeData(aroyan, normalization.method = "LogNormalize", scale.fac
 ```{r}
 #Identification of highly variable features (feature selection)
 
-aroyan <- FindVariableFeatures(aroyan, selection.method = "vst", nfeatures = 3000) #увеличить до 3000 можно
+first <- FindVariableFeatures(first, selection.method = "vst", nfeatures = 3000) #увеличить до 3000 можно
 
-top10_aroyan <- head(VariableFeatures(aroyan), 10)
+top10_first <- head(VariableFeatures(first), 10)
 
-plot1_aroyan <- VariableFeaturePlot(aroyan)
-plot1_aroyan <- LabelPoints(plot = plot1_aroyan, points = top10_aroyan, repel = TRUE)
+plot1_first <- VariableFeaturePlot(first)
+plot1_first <- LabelPoints(plot = plot1_first, points = top10_first, repel = TRUE)
 
-plot1_aroyan
+plot1_first
 
 
 ```
@@ -87,20 +87,20 @@ plot1_aroyan
 ```{r}
 #Scaling the data
 
-all.genes_aroyan <- rownames(aroyan)
-aroyan <- ScaleData(aroyan, features = all.genes_aroyan)
+all.genes_first <- rownames(first)
+first <- ScaleData(first, features = all.genes_first)
 ```
 
 
 ```{r}
 # PCA
 
-aroyan <- RunPCA(aroyan, features = VariableFeatures(object = aroyan))
+first <- RunPCA(first, features = VariableFeatures(object = first))
 
 # Examine and visualize PCA results a few different ways
-print(aroyan[["pca"]], dims = 1:5, nfeatures = 5)
+print(first[["pca"]], dims = 1:5, nfeatures = 5)
 
-VizDimLoadings(aroyan, dims = 1:2, reduction = "pca")
+VizDimLoadings(first, dims = 1:2, reduction = "pca")
 ```
 
 
@@ -108,7 +108,7 @@ VizDimLoadings(aroyan, dims = 1:2, reduction = "pca")
 ```{r}
 #PCA plot
 
-DimPlot(aroyan, reduction = "pca") + NoLegend()
+DimPlot(first, reduction = "pca") + NoLegend()
 ```
 
 
@@ -116,7 +116,7 @@ DimPlot(aroyan, reduction = "pca") + NoLegend()
 ```{r}
 #Heat map
 
-DimHeatmap(aroyan, dims = 1, cells = 500, balanced = TRUE)
+DimHeatmap(first, dims = 1, cells = 500, balanced = TRUE)
 ```
 
 
@@ -124,7 +124,7 @@ DimHeatmap(aroyan, dims = 1, cells = 500, balanced = TRUE)
 ```{r}
 #Heat maps
 
-DimHeatmap(aroyan, dims = 1:9, cells = 100, balanced = TRUE)
+DimHeatmap(first, dims = 1:9, cells = 100, balanced = TRUE)
 ```
 
 
@@ -132,7 +132,7 @@ DimHeatmap(aroyan, dims = 1:9, cells = 100, balanced = TRUE)
 ```{r}
 #Determine the ‘dimensionality’ of the dataset
 
-ElbowPlot(aroyan, ndims=50)
+ElbowPlot(first, ndims=50)
 ```
 
 
@@ -140,31 +140,31 @@ ElbowPlot(aroyan, ndims=50)
 ```{r}
 #Cluster the cells
 set.seed(42)
-aroyan <- FindNeighbors(aroyan, dims = 1:30)
-aroyan <- FindClusters(aroyan, resolution = 1.4)
+first <- FindNeighbors(first, dims = 1:30)
+first <- FindClusters(first, resolution = 1.4)
 
 #Look at cluster IDs of the first 5 cells
-head(Idents(aroyan), 5)
+head(Idents(first), 5)
 ```
 
 
 ```{r}
 # Convert Seurat object to SingleCellExperiment format required for running scDblFinder doublet detection.
-sce_aroyan <- as.SingleCellExperiment(aroyan)
+sce_first <- as.SingleCellExperiment(first)
 
 # Identify potential doublets using scDblFinder
-sce_aroyan <- scDblFinder(sce_aroyan)
+sce_first <- scDblFinder(sce_first)
 
 # Check the classification results: singlets vs doublets
-table(colData(sce_aroyan)$scDblFinder.class)
+table(colData(sce_first)$scDblFinder.class)
 
 # Add doublet classification and doublet scores back to Seurat metadata
-aroyan$doublet_call  <- colData(sce_aroyan)$scDblFinder.class
-aroyan$doublet_score <- colData(sce_aroyan)$scDblFinder.score
+first$doublet_call  <- colData(sce_first)$scDblFinder.class
+first$doublet_score <- colData(sce_first)$scDblFinder.score
 
 
 # Summarize the number of predicted singlets and doublets
-table(aroyan$doublet_call)
+table(first$doublet_call)
 
 ```
 
@@ -174,8 +174,8 @@ table(aroyan$doublet_call)
 
 #Remove doublets
 
-aroyan_singlets <- subset(aroyan, subset = doublet_call == "singlet")
-aroyan_singlets
+first_singlets <- subset(first, subset = doublet_call == "singlet")
+first_singlets
 
 
 
@@ -187,16 +187,16 @@ aroyan_singlets
 
 set.seed(42)
 
-aroyan_singlets <- NormalizeData(aroyan_singlets)
-aroyan_singlets <- FindVariableFeatures(aroyan_singlets)
-aroyan_singlets <- ScaleData(aroyan_singlets)
-aroyan_singlets <- RunPCA(aroyan_singlets, npcs = 30)
+first_singlets <- NormalizeData(first_singlets)
+first_singlets <- FindVariableFeatures(first_singlets)
+first_singlets <- ScaleData(first_singlets)
+first_singlets <- RunPCA(first_singlets, npcs = 30)
 
-aroyan_singlets <- FindNeighbors(aroyan_singlets, dims = 1:30)
-aroyan_singlets <- FindClusters(aroyan_singlets, resolution = 1.4)
-aroyan_singlets <- RunUMAP(aroyan_singlets, dims = 1:30, seed.use = 42)
+first_singlets <- FindNeighbors(first_singlets, dims = 1:30)
+first_singlets <- FindClusters(first_singlets, resolution = 1.4)
+first_singlets <- RunUMAP(first_singlets, dims = 1:30, seed.use = 42)
 
-DimPlot(aroyan_singlets, reduction = "umap", label = TRUE) + NoLegend()
+DimPlot(first_singlets, reduction = "umap", label = TRUE) + NoLegend()
 
 ```
 
@@ -240,18 +240,18 @@ DimPlot(aroyan_singlets, reduction = "umap", label = TRUE) + NoLegend()
 ```{r}
 # Separate plasma cells from B cells based on MZB1 expression and update cell type annotations
 
-cells_cl8 <- WhichCells(aroyan_singlets, idents = 8)
+cells_cl8 <- WhichCells(first_singlets, idents = 8)
 
 
-mz <- FetchData(aroyan_singlets, vars = "MZB1")[cells_cl8, , drop=FALSE]
+mz <- FetchData(first_singlets, vars = "MZB1")[cells_cl8, , drop=FALSE]
 
 
 plasma_cells <- rownames(mz)[mz$MZB1 > 0]
 b_cells      <- setdiff(cells_cl8, plasma_cells)
 
 
-aroyan_singlets$celltype[b_cells]      <- "B Cells"
-aroyan_singlets$celltype[plasma_cells] <- "Plasma Cells"
+first_singlets$celltype[b_cells]      <- "B Cells"
+first_singlets$celltype[plasma_cells] <- "Plasma Cells"
 
 
 
@@ -262,17 +262,17 @@ aroyan_singlets$celltype[plasma_cells] <- "Plasma Cells"
 # Identify mast cells and progenitor cells within cluster 14 based on CPA3 expression
 # and update cell type annotations accordingly.
 
-Idents(aroyan_singlets) <- "seurat_clusters"
+Idents(first_singlets) <- "seurat_clusters"
 
-cells_cl14 <- WhichCells(aroyan_singlets, idents = 14)
+cells_cl14 <- WhichCells(first_singlets, idents = 14)
 
-cp <- FetchData(aroyan_singlets, vars = "CPA3")[cells_cl14, , drop = FALSE]
+cp <- FetchData(first_singlets, vars = "CPA3")[cells_cl14, , drop = FALSE]
 
 mast_cells <- rownames(cp)[cp$CPA3 > 0]
 prog <- setdiff(cells_cl14, mast_cells)
 
-aroyan_singlets$celltype[mast_cells] <- "Mast Cells"
-aroyan_singlets$celltype[prog] <- "MPP"
+first_singlets$celltype[mast_cells] <- "Mast Cells"
+first_singlets$celltype[prog] <- "MPP"
 
 ```
 
@@ -281,7 +281,7 @@ aroyan_singlets$celltype[prog] <- "MPP"
 # Try to identify clusters
 
 DotPlot(
-  aroyan_singlets,
+  first_singlets,
   features = unique(c("TPSAB1", "CD34", "MPO", "KIT", "GATA2", "TRH")),
   assay = "RNA"
 )
@@ -293,44 +293,44 @@ DotPlot(
 ```{r}
 # Try to figure out with clusters 
 
-FeaturePlot(aroyan_singlets, features = c("CD2", "CD3D", "CD3E", "CD3G", "IKZF2", "CD8B"))
+FeaturePlot(first_singlets, features = c("CD2", "CD3D", "CD3E", "CD3G", "IKZF2", "CD8B"))
 
 ```
 
 
 ```{r}
 # Try to figure out with clusters
-DotPlot(aroyan_singlets, features = c("MKI67", "HBB", "HBA2", "AHSP"))
+DotPlot(first_singlets, features = c("MKI67", "HBB", "HBA2", "AHSP"))
 ```
 
 
 ```{r}
-table(aroyan_singlets$celltype)
+table(first_singlets$celltype)
 ```
 
 
 ```{r}
-#aroyan_singlets <- subset(aroyan_singlets, seurat_clusters != 5)
-#DimPlot(aroyan_singlets, reduction = "umap", label = TRUE) + NoLegend()
+#first_singlets <- subset(first_singlets, seurat_clusters != 5)
+#DimPlot(first_singlets, reduction = "umap", label = TRUE) + NoLegend()
 ```
 
 
 
 ```{r}
 # find markers for every cluster compared to all remaining cells, report only the positive ones
-aroyan_singlets.markers <- FindAllMarkers(
-  aroyan_singlets,
+first_singlets.markers <- FindAllMarkers(
+  first_singlets,
   only.pos = TRUE,
   min.pct = 0.05
 ) #cutoff for min % of cells in which genes are expressed
 
-aroyan_markers_top20 <- aroyan_singlets.markers %>%
+first_markers_top20 <- first_singlets.markers %>%
   group_by(cluster) %>%
   slice_max(order_by = avg_log2FC, n = 20) %>%
   arrange(cluster, desc(avg_log2FC))
 
 
-aroyan_markers_strict <- aroyan_singlets.markers %>%
+first_markers_strict <- first_singlets.markers %>%
   group_by(cluster) %>%
   filter(avg_log2FC > 1) %>%
   arrange(cluster, desc(avg_log2FC))
@@ -346,14 +346,14 @@ aroyan_markers_strict <- aroyan_singlets.markers %>%
 wb <- createWorkbook()
 
 addWorksheet(wb, "Top20_markers")
-writeData(wb, "Top20_markers", aroyan_markers_top20)
+writeData(wb, "Top20_markers", first_markers_top20)
 
 addWorksheet(wb, "Strict_markers_logFC_gt1")
-writeData(wb, "Strict_markers_logFC_gt1", aroyan_markers_strict)
+writeData(wb, "Strict_markers_logFC_gt1", first_markers_strict)
 
 saveWorkbook(
   wb,
-  file = "JMML_cluster_markers_aroyan_singlets_dims30_res1.4_seed42.xlsx",
+  file = "JMML_cluster_markers_first_singlets_dims30_res1.4_seed42.xlsx",
   overwrite = TRUE
 )
 
@@ -366,18 +366,18 @@ saveWorkbook(
 ```{r}
 # Main dot plot
 
-DotPlot(aroyan_singlets, features = c("HBB", "AHSP", "CPA3", "MKI67", "LYZ","S100A8"))
+DotPlot(first_singlets, features = c("HBB", "AHSP", "CPA3", "MKI67", "LYZ","S100A8"))
 ```
 
 
 
 ```{r}
 
-top10.markers <- aroyan.markers %>%
+top10.markers <- first.markers %>%
   group_by(cluster) %>%
   slice_max(order_by = avg_log2FC, n = 10)
 
-top20.markers <- aroyan.markers %>%
+top20.markers <- first.markers %>%
   group_by(cluster) %>%
   slice_max(order_by = avg_log2FC, n = 20)
 
@@ -394,9 +394,9 @@ top20.markers
 # Assign cell type labels to clusters, then refine annotation by splitting specific clusters
 # using marker genes (MZB1 for Plasma vs B cells; CPA3 for Mast cells), and visualize final UMAP.
 
-Idents(aroyan_singlets) <- "seurat_clusters"
+Idents(first_singlets) <- "seurat_clusters"
 
-cluster2celltype_aroyan <- c(
+cluster2celltype_first <- c(
   "0"  = "Monocytes",
   "1"  = "IF Monocytes",
   "2"  = "Monocyte-like",
@@ -415,42 +415,42 @@ cluster2celltype_aroyan <- c(
   "16" = "Erythroid Progenitors"
 )
 
-aroyan_singlets$celltype <- unname(
-  cluster2celltype_aroyan[as.character(aroyan_singlets$seurat_clusters)]
+first_singlets$celltype <- unname(
+  cluster2celltype_first[as.character(first_singlets$seurat_clusters)]
 )
 
-cells_cl8 <- WhichCells(aroyan_singlets, idents = 8)
-mz <- FetchData(aroyan_singlets, vars = "MZB1")[cells_cl8, , drop = FALSE]
+cells_cl8 <- WhichCells(first_singlets, idents = 8)
+mz <- FetchData(first_singlets, vars = "MZB1")[cells_cl8, , drop = FALSE]
 
 plasma_cells <- rownames(mz)[mz$MZB1 > 0]
 b_cells      <- setdiff(cells_cl8, plasma_cells)
 
-aroyan_singlets$celltype[b_cells]      <- "B Cells"
-aroyan_singlets$celltype[plasma_cells] <- "Plasma Cells"
+first_singlets$celltype[b_cells]      <- "B Cells"
+first_singlets$celltype[plasma_cells] <- "Plasma Cells"
 
-cells_cl14 <- WhichCells(aroyan_singlets, idents = 14)
-cp <- FetchData(aroyan_singlets, vars = "CPA3")[cells_cl14, , drop = FALSE]
+cells_cl14 <- WhichCells(first_singlets, idents = 14)
+cp <- FetchData(first_singlets, vars = "CPA3")[cells_cl14, , drop = FALSE]
 
 mast_cells <- rownames(cp)[cp$CPA3 > 0]
 rest_cells <- setdiff(cells_cl14, mast_cells)
 
-aroyan_singlets$celltype[mast_cells] <- "Mast Cells"
-aroyan_singlets$celltype[rest_cells] <- "MPP"
+first_singlets$celltype[mast_cells] <- "Mast Cells"
+first_singlets$celltype[rest_cells] <- "MPP"
 
-table(aroyan_singlets$celltype, useNA = "ifany")
+table(first_singlets$celltype, useNA = "ifany")
 
-#aroyan_singlets <- subset(aroyan_singlets, subset = celltype != "Unknown")
+#first_singlets <- subset(first_singlets, subset = celltype != "Unknown")
 
-Idents(aroyan_singlets) <- "celltype"
+Idents(first_singlets) <- "celltype"
 
-DimPlot(aroyan_singlets, group.by = "celltype", label = TRUE, repel = TRUE) + NoLegend()
+DimPlot(first_singlets, group.by = "celltype", label = TRUE, repel = TRUE) + NoLegend()
 
 ```
 
 
 ```{r}
 #to check
-table(aroyan_singlets$celltype)
+table(first_singlets$celltype)
 
 ```
 
@@ -462,19 +462,19 @@ table(aroyan_singlets$celltype)
 
 library(zellkonverter)
 
-sce_aroyan <- as.SingleCellExperiment(aroyan_singlets)
+sce_first <- as.SingleCellExperiment(first_singlets)
 
-if (!"logcounts" %in% SummarizedExperiment::assayNames(sce_aroyan)) {
-  SummarizedExperiment::assay(sce_aroyan, "logcounts") <- 
-    GetAssayData(aroyan_singlets, layer = "data")
+if (!"logcounts" %in% SummarizedExperiment::assayNames(sce_first)) {
+  SummarizedExperiment::assay(sce_first, "logcounts") <- 
+    GetAssayData(first_singlets, layer = "data")
 }
 
-SummarizedExperiment::assay(sce_aroyan, "counts") <- 
-  GetAssayData(aroyan_singlets, layer = "counts")
+SummarizedExperiment::assay(sce_first, "counts") <- 
+  GetAssayData(first_singlets, layer = "counts")
 
 writeH5AD(
-  sce_aroyan,
-  "aroyan_singlets_log1p10k.h5ad",
+  sce_first,
+  "first_singlets_log1p10k.h5ad",
   X_name = "logcounts"
 )
 
@@ -486,7 +486,7 @@ writeH5AD(
 
 library(readr)
 
-pred <- read_csv("aroyan_JMML_AML/predicted_labels.csv")
+pred <- read_csv("first_JMML_AML/predicted_labels.csv")
 
 head(pred)
 colnames(pred)
@@ -496,22 +496,22 @@ colnames(pred)
 # Read CellTypist predictions, map predicted labels to Seurat cell barcodes,
 # add them to Seurat metadata, and visualize the annotation on UMAP.
 
-pred_aroyan <- read.csv("aroyan_JMML_AML//predicted_labels.csv", check.names = FALSE)  
-head(pred_aroyan)
-colnames(pred_aroyan)
+pred_first <- read.csv("first_JMML_AML//predicted_labels.csv", check.names = FALSE)  
+head(pred_first)
+colnames(pred_first)
 
-cell_ids <- pred_aroyan[[1]]
+cell_ids <- pred_first[[1]]
 
 head(cell_ids)
-mv <- pred_aroyan$majority_voting
+mv <- pred_first$majority_voting
 names(mv) <- cell_ids
 
-length(intersect(Cells(aroyan_singlets), names(mv)))
+length(intersect(Cells(first_singlets), names(mv)))
 
-aroyan_singlets$celltypist <- mv[Cells(aroyan_singlets)]
-table(aroyan_singlets$celltypist, useNA = "ifany")
+first_singlets$celltypist <- mv[Cells(first_singlets)]
+table(first_singlets$celltypist, useNA = "ifany")
 
-DimPlot(aroyan_singlets, reduction = "umap", group.by = "celltypist", label = TRUE) +
+DimPlot(first_singlets, reduction = "umap", group.by = "celltypist", label = TRUE) +
   NoLegend()
 
 
