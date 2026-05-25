@@ -1,0 +1,716 @@
+---
+title: "cellchat"
+output: html_document
+date: "2026-05-12"
+---
+
+
+```{r}
+library(Seurat)
+library(CellChat)
+library(openxlsx)
+library(dplyr)
+library(ggplot2)
+library(future)
+
+
+# Set parallel processing for CellChat
+future::plan("multisession", workers = 8)
+
+# Patient 1: prepare output folders and subset cells
+dir.create("CellChat_patient_1", showWarnings = FALSE)
+dir.create("CellChat_patient_1/tables", showWarnings = FALSE)
+
+patient_1_obj <- subset(
+  combined_JMML_AML_harmony,
+  subset = sample == "pat_1"
+)
+
+patient_1_obj <- subset(
+  patient_1_obj,
+  subset = !is.na(celltype_refined)
+)
+
+patient_1_obj$celltype_refined <- droplevels(
+  factor(patient_1_obj$celltype_refined)
+)
+
+Idents(patient_1_obj) <- patient_1_obj$celltype_refined
+
+DefaultAssay(patient_1_obj) <- "RNA"
+
+# Create CellChat object and use the secreted signaling database
+cellchat_p1 <- createCellChat(
+  object = patient_1_obj,
+  group.by = "celltype_refined",
+  assay = "RNA"
+)
+
+CellChatDB <- CellChatDB.human
+
+CellChatDB.use <- subsetDB(
+  CellChatDB,
+  search = "Secreted Signaling",
+  key = "annotation"
+)
+
+cellchat_p1@DB <- CellChatDB.use
+
+cellchat_p1 <- subsetData(cellchat_p1)
+
+# Detect overexpressed signaling genes and infer communication probabilities
+cellchat_p1 <- identifyOverExpressedGenes(
+  cellchat_p1,
+  thresh.pc = 0.10,
+  thresh.fc = 0.25,
+  thresh.p = 0.05
+)
+
+cellchat_p1 <- identifyOverExpressedInteractions(cellchat_p1)
+
+cellchat_p1 <- computeCommunProb(
+  cellchat_p1,
+  type = "triMean"
+)
+
+cellchat_p1 <- filterCommunication(
+  cellchat_p1,
+  min.cells = 10
+)
+
+cellchat_p1 <- computeCommunProbPathway(cellchat_p1)
+
+cellchat_p1 <- aggregateNet(cellchat_p1)
+
+# Save CellChat object and export main communication tables
+saveRDS(
+  cellchat_p1,
+  file = "CellChat_patient_1/cellchat_patient_1.rds"
+)
+
+pathways <- cellchat_p1@netP$pathways
+
+write.xlsx(
+  data.frame(pathway = pathways),
+  file = "CellChat_patient_1/tables/detected_pathways.xlsx",
+  rowNames = FALSE
+)
+
+write.xlsx(
+  data.frame(cellchat_p1@net$count),
+  file = "CellChat_patient_1/tables/interaction_counts.xlsx",
+  rowNames = TRUE
+)
+
+write.xlsx(
+  data.frame(cellchat_p1@net$weight),
+  file = "CellChat_patient_1/tables/interaction_weights.xlsx",
+  rowNames = TRUE
+)
+
+df_all <- subsetCommunication(cellchat_p1)
+
+write.xlsx(
+  df_all,
+  file = "CellChat_patient_1/tables/all_communications.xlsx",
+  rowNames = FALSE
+)
+
+df_IL1 <- df_all %>%
+  dplyr::filter(pathway_name == "IL1")
+
+write.xlsx(
+  df_IL1,
+  file = "CellChat_patient_1/tables/IL1_communications.xlsx",
+  rowNames = FALSE
+)
+
+# Export pathway-specific probability matrices
+prob <- cellchat_p1@netP$prob
+
+wb <- createWorkbook()
+
+for (i in seq_along(pathways)) {
+  
+  pathway_name <- pathways[i]
+  pathway_name_clean <- substr(pathway_name, 1, 31)
+  
+  addWorksheet(wb, pathway_name_clean)
+  
+  prob_matrix <- prob[, , i]
+  
+  writeData(
+    wb,
+    sheet = pathway_name_clean,
+    x = prob_matrix,
+    rowNames = TRUE
+  )
+}
+
+saveWorkbook(
+  wb,
+  file = "CellChat_patient_1/tables/pathway_probability_matrices.xlsx",
+  overwrite = TRUE
+)
+```
+
+
+```{r}
+# Visualize global communication strength for patient 1
+groupSize <- as.numeric(table(cellchat_p1@idents))
+
+par(mfrow = c(1,2), xpd = TRUE)
+
+netVisual_circle(
+  cellchat_p1@net$count,
+  vertex.weight = groupSize,
+  weight.scale = TRUE,
+  label.edge = FALSE,
+  title.name = "Number of interactions"
+)
+
+netVisual_circle(
+  cellchat_p1@net$weight,
+  vertex.weight = groupSize,
+  weight.scale = TRUE,
+  label.edge = FALSE,
+  title.name = "Interaction strength"
+)
+```
+
+```{r}
+netVisual_heatmap(
+  cellchat_p1,
+  signaling = "IL1",
+  color.heatmap = "Reds"
+)
+
+netVisual_heatmap(
+  cellchat_p1,
+  signaling = "TNF",
+  color.heatmap = "Reds"
+)
+
+netVisual_heatmap(
+  cellchat_p1,
+  signaling = "TGFb",
+  color.heatmap = "Reds"
+)
+```
+```{r}
+netVisual_bubble(
+  cellchat_p1,
+  sources.use = c("Monocytes"),
+  remove.isolate = FALSE
+)
+```
+```{r}
+netAnalysis_contribution(
+  cellchat_p1,
+  signaling = "IL1"
+)
+```
+
+```{r}
+# Select monocyte-like target populations for ligand-receptor visualization
+target_cells <- c("Monocyte-like", "Monocytes")
+
+df_target <- df_all %>%
+  dplyr::filter(target %in% target_cells) %>%
+  dplyr::mutate(
+    interaction_label = paste0(ligand, " - ", receptor),
+    cell_interaction = paste0(source, " -> ", target)
+  ) %>%
+  dplyr::arrange(desc(prob)) %>%
+  dplyr::slice_head(n = 40)
+
+p_dot <- ggplot(
+  df_target,
+  aes(
+    x = cell_interaction,
+    y = interaction_label,
+    size = prob,
+    color = pathway_name
+  )
+) +
+  geom_point(alpha = 0.85) +
+  labs(
+    title = "Top ligand-receptor interactions targeting monocytic-like cells - Patient 1",
+    x = "Cell-cell interaction",
+    y = "Ligand-receptor pair",
+    size = "Communication probability",
+    color = "Pathway"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7),
+    axis.text.y = element_text(size = 8),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+p_dot
+
+ggsave(
+  filename = "CellChat_patient_1/top_LR_targeting_monocytic_like_patient_1.png",
+  plot = p_dot,
+  width = 13,
+  height = 8,
+  dpi = 300
+)
+```
+
+
+```{r}
+# Patient 2: prepare output folders and subset cells
+dir.create("CellChat_patient_2", showWarnings = FALSE)
+dir.create("CellChat_patient_2/tables", showWarnings = FALSE)
+
+patient_2_obj <- subset(
+  combined_JMML_AML_harmony,
+  subset = sample == "pat_2"
+)
+
+patient_2_obj <- subset(
+  patient_2_obj,
+  subset = !is.na(celltype_refined)
+)
+
+patient_2_obj$celltype_refined <- droplevels(
+  factor(patient_2_obj$celltype_refined)
+)
+
+Idents(patient_2_obj) <- patient_2_obj$celltype_refined
+
+DefaultAssay(patient_2_obj) <- "RNA"
+
+# Create CellChat object and use the secreted signaling database
+cellchat_p2 <- createCellChat(
+  object = patient_2_obj,
+  group.by = "celltype_refined",
+  assay = "RNA"
+)
+
+CellChatDB <- CellChatDB.human
+
+CellChatDB.use <- subsetDB(
+  CellChatDB,
+  search = "Secreted Signaling",
+  key = "annotation"
+)
+
+cellchat_p2@DB <- CellChatDB.use
+
+cellchat_p2 <- subsetData(cellchat_p2)
+
+# Detect overexpressed signaling genes and infer communication probabilities
+cellchat_p2 <- identifyOverExpressedGenes(
+  cellchat_p2,
+  thresh.pc = 0.10,
+  thresh.fc = 0.25,
+  thresh.p = 0.05
+)
+
+cellchat_p2 <- identifyOverExpressedInteractions(cellchat_p2)
+
+cellchat_p2 <- computeCommunProb(
+  cellchat_p2,
+  type = "triMean"
+)
+
+cellchat_p2 <- filterCommunication(
+  cellchat_p2,
+  min.cells = 10
+)
+
+cellchat_p2 <- computeCommunProbPathway(cellchat_p2)
+
+cellchat_p2 <- aggregateNet(cellchat_p2)
+
+# Save CellChat object and export main communication tables
+saveRDS(
+  cellchat_p2,
+  file = "CellChat_patient_2/cellchat_patient_2.rds"
+)
+
+pathways <- cellchat_p2@netP$pathways
+
+write.xlsx(
+  data.frame(pathway = pathways),
+  file = "CellChat_patient_2/tables/detected_pathways.xlsx",
+  rowNames = FALSE
+)
+
+write.xlsx(
+  data.frame(cellchat_p2@net$count),
+  file = "CellChat_patient_2/tables/interaction_counts.xlsx",
+  rowNames = TRUE
+)
+
+write.xlsx(
+  data.frame(cellchat_p2@net$weight),
+  file = "CellChat_patient_2/tables/interaction_weights.xlsx",
+  rowNames = TRUE
+)
+
+df_all <- subsetCommunication(cellchat_p2)
+
+write.xlsx(
+  df_all,
+  file = "CellChat_patient_2/tables/all_communications.xlsx",
+  rowNames = FALSE
+)
+
+df_IL1 <- df_all %>%
+  dplyr::filter(pathway_name == "IL1")
+
+write.xlsx(
+  df_IL1,
+  file = "CellChat_patient_2/tables/IL1_communications.xlsx",
+  rowNames = FALSE
+)
+
+# Export pathway-specific probability matrices
+prob <- cellchat_p2@netP$prob
+
+wb <- createWorkbook()
+
+for (i in seq_along(pathways)) {
+  
+  pathway_name <- pathways[i]
+  pathway_name_clean <- substr(pathway_name, 1, 31)
+  
+  addWorksheet(wb, pathway_name_clean)
+  
+  prob_matrix <- prob[, , i]
+  
+  writeData(
+    wb,
+    sheet = pathway_name_clean,
+    x = prob_matrix,
+    rowNames = TRUE
+  )
+}
+
+saveWorkbook(
+  wb,
+  file = "CellChat_patient_2/tables/pathway_probability_matrices.xlsx",
+  overwrite = TRUE
+)
+```
+
+
+```{r}
+# Visualize global communication strength for patient 2
+groupSize <- as.numeric(table(cellchat_p2@idents))
+
+par(mfrow = c(1,2), xpd = TRUE)
+
+netVisual_circle(
+  cellchat_p2@net$count,
+  vertex.weight = groupSize,
+  weight.scale = TRUE,
+  label.edge = FALSE,
+  title.name = "Number of interactions"
+)
+
+netVisual_circle(
+  cellchat_p2@net$weight,
+  vertex.weight = groupSize,
+  weight.scale = TRUE,
+  label.edge = FALSE,
+  title.name = "Interaction strength"
+)
+```
+```{r}
+netVisual_bubble(
+  cellchat_p2,
+  sources.use = c("Monocytes", "IF Monocytes"),
+  remove.isolate = FALSE
+)
+```
+```{r}
+netAnalysis_contribution(
+  cellchat_p2,
+  signaling = "IL1"
+)
+```
+```{r}
+# Patient 3: prepare output folders and subset cells
+dir.create("CellChat_patient_3", showWarnings = FALSE)
+dir.create("CellChat_patient_3/tables", showWarnings = FALSE)
+
+patient_3_obj <- subset(
+  combined_JMML_AML_harmony,
+  subset = sample == "pat_3"
+)
+
+patient_3_obj <- subset(
+  patient_3_obj,
+  subset = !is.na(celltype_refined)
+)
+
+patient_3_obj$celltype_refined <- droplevels(
+  factor(patient_3_obj$celltype_refined)
+)
+
+Idents(patient_3_obj) <- patient_3_obj$celltype_refined
+
+DefaultAssay(patient_3_obj) <- "RNA"
+
+# Create CellChat object and use the secreted signaling database
+cellchat_p3 <- createCellChat(
+  object = patient_3_obj,
+  group.by = "celltype_refined",
+  assay = "RNA"
+)
+
+CellChatDB <- CellChatDB.human
+
+CellChatDB.use <- subsetDB(
+  CellChatDB,
+  search = "Secreted Signaling",
+  key = "annotation"
+)
+
+cellchat_p3@DB <- CellChatDB.use
+
+cellchat_p3 <- subsetData(cellchat_p3)
+
+# Detect overexpressed signaling genes and infer communication probabilities
+cellchat_p3 <- identifyOverExpressedGenes(
+  cellchat_p3,
+  thresh.pc = 0.10,
+  thresh.fc = 0.25,
+  thresh.p = 0.05
+)
+
+cellchat_p3 <- identifyOverExpressedInteractions(cellchat_p3)
+
+cellchat_p3 <- computeCommunProb(
+  cellchat_p3,
+  type = "triMean"
+)
+
+cellchat_p3 <- filterCommunication(
+  cellchat_p3,
+  min.cells = 10
+)
+
+cellchat_p3 <- computeCommunProbPathway(cellchat_p3)
+
+cellchat_p3 <- aggregateNet(cellchat_p3)
+
+# Save CellChat object and export main communication tables
+saveRDS(
+  cellchat_p3,
+  file = "CellChat_patient_3/cellchat_patient_3.rds"
+)
+
+pathways <- cellchat_p3@netP$pathways
+
+write.xlsx(
+  data.frame(pathway = pathways),
+  file = "CellChat_patient_3/tables/detected_pathways.xlsx",
+  rowNames = FALSE
+)
+
+write.xlsx(
+  data.frame(cellchat_p3@net$count),
+  file = "CellChat_patient_3/tables/interaction_counts.xlsx",
+  rowNames = TRUE
+)
+
+write.xlsx(
+  data.frame(cellchat_p3@net$weight),
+  file = "CellChat_patient_3/tables/interaction_weights.xlsx",
+  rowNames = TRUE
+)
+
+df_all <- subsetCommunication(cellchat_p3)
+
+write.xlsx(
+  df_all,
+  file = "CellChat_patient_3/tables/all_communications.xlsx",
+  rowNames = FALSE
+)
+
+df_IL1 <- df_all %>%
+  dplyr::filter(pathway_name == "IL1")
+
+write.xlsx(
+  df_IL1,
+  file = "CellChat_patient_3/tables/IL1_communications.xlsx",
+  rowNames = FALSE
+)
+
+# Export pathway-specific probability matrices
+prob <- cellchat_p3@netP$prob
+
+wb <- createWorkbook()
+
+for (i in seq_along(pathways)) {
+  
+  pathway_name <- pathways[i]
+  pathway_name_clean <- substr(pathway_name, 1, 31)
+  
+  addWorksheet(wb, pathway_name_clean)
+  
+  prob_matrix <- prob[, , i]
+  
+  writeData(
+    wb,
+    sheet = pathway_name_clean,
+    x = prob_matrix,
+    rowNames = TRUE
+  )
+}
+
+saveWorkbook(
+  wb,
+  file = "CellChat_patient_3/tables/pathway_probability_matrices.xlsx",
+  overwrite = TRUE
+)
+```
+```{r}
+# Visualize global communication strength for patient 3
+groupSize <- as.numeric(table(cellchat_p3@idents))
+
+par(mfrow = c(1,2), xpd = TRUE)
+
+netVisual_circle(
+  cellchat_p3@net$count,
+  vertex.weight = groupSize,
+  weight.scale = TRUE,
+  label.edge = FALSE,
+  title.name = "Number of interactions"
+)
+
+netVisual_circle(
+  cellchat_p3@net$weight,
+  vertex.weight = groupSize,
+  weight.scale = TRUE,
+  label.edge = FALSE,
+  title.name = "Interaction strength"
+)
+```
+```{r}
+netVisual_bubble(
+  cellchat_p3,
+  sources.use = c("Monocytes", "IF Monocytes"),
+  remove.isolate = FALSE
+)
+```
+```{r}
+netAnalysis_contribution(
+  cellchat_p3,
+  signaling = "IL1"
+)
+```
+```{r}
+# Plot top ligand-receptor interactions for patient 3
+df_all <- subsetCommunication(cellchat_p3)
+
+top_lr <- df_all %>%
+  dplyr::mutate(
+    interaction_label = paste0(ligand, " - ", receptor),
+    direction_label = paste0(source, " -> ", target),
+    full_label = paste0(interaction_label, "\n", direction_label)
+  ) %>%
+  dplyr::arrange(desc(prob)) %>%
+  dplyr::slice_head(n = 15)
+
+p_bar <- ggplot(
+  top_lr,
+  aes(
+    x = prob,
+    y = reorder(full_label, prob)
+  )
+) +
+  geom_col(fill = "grey35") +
+  labs(
+    title = "Top ligand-receptor interactions in Patient 3",
+    x = "Communication probability",
+    y = "Ligand-receptor pair and cell direction"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.y = element_text(size = 8),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+p_bar
+
+ggsave(
+  filename = "CellChat_patient_3/top_LR_interactions_barplot_patient_3.png",
+  plot = p_bar,
+  width = 10,
+  height = 7,
+  dpi = 300
+)
+```
+```{r}
+unique(df_all$target)
+```
+
+```{r}
+# Select monocytic target populations for patient 3
+target_cells <- c("Monocyte/DC-like", "Monocytes")
+```
+
+```{r}
+df_target <- df_all %>%
+  dplyr::filter(target %in% target_cells) %>%
+  dplyr::mutate(
+    interaction_label = paste0(ligand, " - ", receptor),
+    cell_interaction = paste0(source, " -> ", target)
+  ) %>%
+  dplyr::arrange(desc(prob)) %>%
+  dplyr::slice_head(n = 40)
+
+p_dot <- ggplot(
+  df_target,
+  aes(
+    x = cell_interaction,
+    y = interaction_label,
+    size = prob,
+    color = pathway_name
+  )
+) +
+  geom_point(alpha = 0.85) +
+  labs(
+    title = "Top ligand-receptor interactions targeting monocytic-like cells - Patient 3",
+    x = "Cell-cell interaction",
+    y = "Ligand-receptor pair",
+    size = "Communication probability",
+    color = "Pathway"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 7),
+    axis.text.y = element_text(size = 8),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+p_dot
+
+ggsave(
+  filename = "CellChat_patient_3/top_LR_targeting_monocytic_like_patient_3.png",
+  plot = p_dot,
+  width = 13,
+  height = 8,
+  dpi = 300
+)
+```
+```{r}
+df_all <- subsetCommunication(cellchat_p3)
+```
+
+
+```{r}
+netVisual_heatmap(
+  cellchat_p3,
+  signaling = "IL1",
+  color.heatmap = "Reds"
+)
+```
+
